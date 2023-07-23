@@ -1,0 +1,7 @@
+/chromedriver/
+/config/
+/data/
+/log/
+/venv/
+.gitignore
+/.idea/
