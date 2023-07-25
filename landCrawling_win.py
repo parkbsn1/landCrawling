@@ -5,6 +5,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 
 import os
+import platform
 import re
 import logging
 import pandas as pd
@@ -24,6 +25,13 @@ class landCrawling():
             self.set_logger(config.get("PATH", "LOG_PATH"))
             self.data_dir = config.get("PATH", "DATA_PATH")
             self.url_list = config.get("PATH", "URL_LIST")
+
+            if 'macOS' in platform.platform():
+                self.os_name = 'mac'
+            elif 'win' in platform.platform():
+                self.os_name = 'win'
+            else:
+                self.os_name = 'etc'
 
             self.confirm_limit_day = (datetime.now() - timedelta(days=int(config.get("OPTION", "CONFIRM_LIMIT_DATE")))).strftime('%y.%m.%d') +'.'
             self.datetime_now = datetime.now().strftime('%Y%m%d%H%M%S')
@@ -196,7 +204,13 @@ class landCrawling():
 
     def read_url_file(self) -> dict:
         try:
-            read_full_path = os.path.join(os.getcwd() + self.url_list.replace('/','\\'))
+            if self.os_name == 'win':
+                read_full_path = os.path.join(os.getcwd() + self.url_list.replace('/','\\'))
+            elif self.os_name == 'mac':
+                read_full_path = os.path.join(os.getcwd(), self.url_list)
+            else:
+                read_full_path = os.path.join(os.getcwd(), self.url_list)
+
             f = open(f'{read_full_path}', 'r', encoding='utf-8' )
             lines = f.readlines()
             urls_dict = {line.split('|', 1)[0].strip(): line.split('|', 1)[1].strip() for line in lines}
@@ -267,8 +281,12 @@ class landCrawling():
 
     def write_to_excel(self, df, brif_df):
         try:
-            # file_path = os.path.join(os.getcwd() + self.data_dir.replace('./','/'))
-            file_path = os.path.join(os.getcwd() + self.data_dir.replace('/', '\\'))
+            if self.os_name == 'win':
+                file_path = os.path.join(os.getcwd() + self.data_dir.replace('/', '\\'))
+            elif self.os_name == 'mac':
+                file_path = os.path.join(os.getcwd(), self.data_dir)
+            else:
+                file_path = os.path.join(os.getcwd(), self.data_dir)
             file_name = self.datetime_now+'.xlsx'
             file_full_path = os.path.join(file_path, file_name)
             self.logger.info(f"Excel 저장 준비 {file_full_path}")
