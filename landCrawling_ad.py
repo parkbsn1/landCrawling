@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver import ActionChains
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.keys import Keys
 
 import os
@@ -17,6 +19,8 @@ from logging.handlers import RotatingFileHandler
 from multiprocessing import Process
 from configparser import ConfigParser
 
+import sendingEmail
+
 class landCrawling():
     def __init__(self, conf_name):
         try:
@@ -28,9 +32,9 @@ class landCrawling():
             self.data_dir = config.get("PATH", "DATA_PATH")
             self.url_list = config.get("PATH", "URL_LIST")
 
-            if 'macOS' in platform.platform().lower():
+            if 'macOS' in platform.platform():
                 self.os_name = 'mac'
-            elif 'win' in platform.platform().lower():
+            elif 'win' in platform.platform():
                 self.os_name = 'win'
             else:
                 self.os_name = 'etc'
@@ -67,88 +71,82 @@ class landCrawling():
         # options.add_argument('headless') # 창 숨기기
 
         # 브라우저 옵션 적용
-        driver = webdriver.Chrome(options=options)
+        # driver = webdriver.Chrome(options=options)
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
         for landName, url in urls.items():
             try:
-                #1. URL 호출
-                try:
-                    driver.get(url)
-                    driver.implicitly_wait(time_to_wait=10)
-                    action = ActionChains(driver)
-                    time.sleep(0.2)
-                    complex_title = driver.find_element(By.ID, "complexTitle").text
-                    self.logger.info("-" * 50)
-                    self.logger.info(f"{complex_title} Crawling Start!")
-                    crawledItems = driver.find_elements(By.CLASS_NAME,"item_inner") #첫페이지에서 매물 개수
-                    crawledItems = [c for c in crawledItems if c.text != '']
-                except Exception as ex:
-                    self.logger.critical(f"url 호출 실패: {ex}")
+                # URL 호출
+                driver.get(url)
+                driver.implicitly_wait(time_to_wait=10)
+                action = ActionChains(driver)
+                time.sleep(1)
+                complex_title = driver.find_element(By.ID, "complexTitle").text
+                self.logger.info("-" * 50)
+                self.logger.info(f"{complex_title} Crawling Start!")
+                crawledItems = driver.find_elements(By.CLASS_NAME,"item_inner") #첫페이지에서 매물 개수
 
-                #2. 지도 기준 해당 아파트의 매물 건수 구하기
-                try:
-                    complex_infos = driver.find_elements(By.CLASS_NAME, "complex_infos")
-                    land_count = {} #매물 건수 파싱 -> land_count = {'매매': 33, '전세': 28}
-                    for one_info in complex_infos:
-                        if complex_title == one_info.find_element(By.CLASS_NAME, "complex_title").text:
-                            tmp = one_info.find_element(By.CLASS_NAME, 'complex_quantity').find_elements(By.CLASS_NAME, 'article_link')
-                            for t in tmp:
-                                if t.find_element(By.CLASS_NAME, 'type').text in ['매매','전세','월세']:
-                                    if t.find_element(By.CLASS_NAME, 'count').text !='':
-                                        land_count[t.find_element(By.CLASS_NAME, 'type').text] = int(t.find_element(By.CLASS_NAME, 'count').text)
-                                    else:
-                                        land_count[t.find_element(By.CLASS_NAME, 'type').text] = 0
-                                        self.logger.critical(f"{t.find_element(By.CLASS_NAME, 'type').text} 건수 파싱에러")
-                            break
-                    totalLandCount = sum([v for v in land_count.values()])
-                    self.logger.info(f"{complex_title} 매물 개수({totalLandCount}): {land_count}")
-                except Exception as ex:
-                    self.logger.critical(f"지도 기준 해당 아파트의 매물 건수: {ex}")
-
-                #3-1. 매물정보가 없는 경우
-                if len(crawledItems) < 1 or totalLandCount < 1:
-                    try:
-                        self.logger.info(f"{complex_title} 매물 정보 없음")
+                #매물 건수 파싱 -> land_count = {'매매': 33, '전세': 28}
+                html = driver.page_source
+                soup = bs(html, 'html.parser')
+                tmp = soup.findAll('div', 'complex_infos')
+                land_count = {}
+                for index, landTitle in enumerate(tmp):
+                    # self.logger.info(f"{landTitle.find('div', 'complex_title').text}")
+                    if landTitle.find('div', 'complex_title').text != complex_title:
                         continue
-                    except Exception as ex:
-                        self.logger.critical(f"지도 기준 해당 아파트의 매물 건수: {ex}")
+                    for index2, landType in enumerate(landTitle.findAll('button', 'article_link')):
+                        if landType.find('span', 'type').text in ['매매','전세','월세']:
+                            self.logger.info(f"{complex_title}: {landType.find('span', 'type').text} {int(landType.find('span', 'count').text)}")
+                            land_count[landType.find('span', 'type').text] = int(landType.find('span', 'count').text)
+                self.logger.info(f"매물 개수: {land_count}")
 
-                #3-2. 매물이 다수인 경우 -> 마지막 매물 선택하면서 수집
+
+                res = []
+                click_idx = -1
+                #매물정보가 없는 경우
+                if len(crawledItems) == 0:
+                    self.logger.info(f"{complex_title} 매물 정보 없음")
+                    continue
+
+                #매물이 소수(5개 이하)인 경우
+                # elif len(crawledItems) < 5:
+                #     html = driver.page_source
+                #     soup = bs(html, 'html.parser')
+                #     self.logger.info(f"{1}: 수집({len(crawledItems)}) | {round((len(crawledItems) / len(crawledItems)) * 100)}% )")
+
+                #매물이 다수인 경우
                 else:
-                    try:
-                        maxLen = len(crawledItems)
-                        for i in range(50):
-                            try:
-                                if len(crawledItems) >= totalLandCount:
-                                    break
-                                crawledItems = driver.find_elements(By.CLASS_NAME, "item_inner")
-                                crawledItems = [item for item in crawledItems if item.text != ''] #빈값 제거
-                                action.move_to_element(crawledItems[-1]).perform() #마지막 매물 선택
-                                time.sleep(0.2)
-                                self.logger.info(
-                                    f"{i + 1}: 수집({len(crawledItems)}) | 대상({totalLandCount}) | {round((len(crawledItems) / totalLandCount) * 100)}% )")
-                                if len(crawledItems) <= maxLen and len(crawledItems) == totalLandCount:
-                                    break
-                                else:
-                                    maxLen = len(crawledItems)
-                            except Exception as ex:
-                                self.logger.critical(f"{i+1}번째 수집 실패")
-                    except Exception as ex:
-                        self.logger.critical(f"매물이 다수인 경우: {ex}")
+                    maxLen = len(crawledItems)
+                    # time_value = 5
+                    totalLandCount = sum([v for v in land_count.values()])
+                    for i in range(50):
+                        if len(crawledItems) == totalLandCount:
+                            break
+                        crawledItems = driver.find_elements(By.CLASS_NAME, "item_inner")
+                        crawledItems = [item for item in crawledItems if item.text != '']
 
-                #4. 수집된 매물정보 크롤링
-                try:
-                    res = []
-                    for item in crawledItems:
-                        tmp = self.get_land_info(item, landName)
-                        if len(tmp) > 0:
-                            res.append(tmp)
-                    self.logger.info(f"{complex_title} 매물 수집({len(res)}건) 완료 *{self.confirm_limit_day}보다 이전 확인 매물 제외")
-                except Exception as ex:
-                    self.logger.critical(f"수집된 매물정보 크롤링: {ex}")
 
-                #5. 크롤링된 정보 누적 저장
+                        action.move_to_element(crawledItems[-1]).perform()
+                        time.sleep(0.2)
+                        self.logger.info(
+                            f"{i + 1}: 수집({len(crawledItems)}) | 대상({totalLandCount}) | {round((len(crawledItems) / totalLandCount) * 100)}% )")
+                        if len(crawledItems) <= maxLen and len(crawledItems) == totalLandCount:
+                            break
+                        else:
+                            maxLen = len(crawledItems)
+
+
+                # res = [self.get_land_info(r, landName) for r in crawledItems]
+                res = []
+                for item in crawledItems:
+                    tmp = self.get_land_info(item, landName)
+                    if len(tmp) > 0:
+                        res.append(tmp)
+                self.logger.info(f"{complex_title} 매물 수집({len(res)}건) 완료")
+
                 landResult.extend(res)
+                self.logger.info(f"{complex_title}: {len(res)}건")
             except Exception as ex:
                 self.logger.critical(f"{url} landCrawling 실패 {ex}")
 
@@ -156,36 +154,36 @@ class landCrawling():
         self.logger.info(f"총 {len(landResult)}건 파싱 완료")
         return landResult
 
-    def get_land_info(self, item, landName): #매물 정보 파싱
+    def get_land_info(self, item, landName): #매물 정보 단건
         try:
             tmp_dict = {}
             tmp_dict["confirm_date"] = item.find_element(By.CLASS_NAME, 'label_area').find_element(By.CLASS_NAME, 'data').text  # 23.07.13.
-            if tmp_dict["confirm_date"] < self.confirm_limit_day: #확인날짜 기준 설정한 날짜보다 오래된 경우 패스
-                return {}
-            tmp_dict["complex_title"] = landName  # 아파트명
-            tmp_dict["item_title"] = item.find_element(By.CLASS_NAME, 'item_title').text  # 아파트명 00동
-            tmp_dict["price_type"] = item.find_element(By.CLASS_NAME, 'price_line').find_element(By.CLASS_NAME, 'type').text  # 매매,전세,월세
+            tmp_dict["complex_title"] = landName  # complex_title
+            # tmp_dict["land_title"], tmp_dict["dong"] = (value.find('div','item_title').find('span','text').string).split(' ') #샛별삼부 408동
+            tmp_dict["item_title"] = item.find_element(By.CLASS_NAME, 'item_title').text  # 샛별삼부 408동
+            tmp_dict["price_type"] = item.find_element(By.CLASS_NAME, 'price_line').find_element(By.CLASS_NAME, 'type').text  # 전세
             if tmp_dict["price_type"] in ['매매', '전세']:  # 매매, 전세
                 tmp_dict["price"] = item.find_element(By.CLASS_NAME, 'price_line').find_element(By.CLASS_NAME, 'price').text  # 7억 5,000
                 tmp_dict["price_int"] = self.get_price_int(tmp_dict["price"], tmp_dict["price_type"])
             else:  # 월세
-                tmp_dict["price"] = item.find_element(By.CLASS_NAME, 'price_line').text[2:] #월세1000/10
+                tmp_dict["price"] = item.find_element(By.CLASS_NAME, 'price_line').text()[2:] #월세1000/10
                 tmp_dict["price_int"] = self.get_price_int(tmp_dict["price"].split('/')[0]) #[1000, 10]
             tmp_dict["land_type"] = item.find_element(By.CLASS_NAME, 'info_area').find_element(By.CLASS_NAME, 'type').text  # 아파트
-            info_area = item.find_element(By.CLASS_NAME, 'info_area').find_elements(By.CLASS_NAME, 'spec')
-            tmp_dict["area_m"], tmp_dict["floor"], tmp_dict["direction"] = (info_area[0].text).replace(' ', '').split(',')  # 158/128m², 15/25층, 남동향
-            tmp_dict["area_p"] = self.get_area_num(tmp_dict["area_m"]) # 48/39평
-            if len(info_area) == 2:
-                tmp_dict["info_area_spec2"] = info_area[-1].text.replace('\n','').strip() #올수리되고 구조예쁜 계단식,채광좋은집,초중고학군바로,입주날짜협의,
-            else: #동일묶기인 경우, tag 정보
-                tmp_dict["info_area_spec2"] = item.find_element(By.CLASS_NAME, 'tag_area').text #25년이상 융자금없는 올수리 대형평수
+            # tmp_dict["info_area_spec"] = (value.find('div', 'info_area').find('span','spec').string).replace('\n','') #158/128m², 15/25층, 남동향
+            tmp_dict["area_m"], tmp_dict["floor"], tmp_dict["direction"] = (
+                item.find_element(By.CLASS_NAME, 'info_area').find_elements(By.CLASS_NAME, 'spec')[0].text).replace('\n', '').split(',')  # 158/128m², 15/25층, 남동향
+            tmp_dict["area_p"] = self.get_area_num(tmp_dict["area_m"])
+            tmp_dict["info_area_spec2"] = (item.find_element(By.CLASS_NAME, 'info_area')
+                .find_elements(By.CLASS_NAME, 'spec')[0].text.split(',')[-1]).replace('\n','').strip()  # 8월중입주협의
+            # tmp_dict["raw_text"] = value.get_text().replace('\n','')
+
             return tmp_dict
 
         except Exception as ex:
             self.logger.critical(f"error land item pasing: {item.text}")
             return {}
 
-    def get_area_num(self, area_m): #158/128m² -> 48/39평
+    def get_area_num(self, area_m):
         try:
             regex = re.compile(r'(\d+)\S*\/(\d+)')
             area_num = regex.search(area_m)
@@ -197,7 +195,7 @@ class landCrawling():
             self.logger.critical(f"get_area_num:{area_m} | {ex}")
             return '-/-평'
 
-    def get_price_int(self, price_str, price_type=''): # 7억 5,000 -> 7.5
+    def get_price_int(self, price_str, price_type=''):
         try:
             regex = re.compile(r'((\d+)[억]\s*)*([\d\,]+)*')
             r = regex.search(price_str)
@@ -211,6 +209,7 @@ class landCrawling():
         except Exception as ex:
             self.logger.critical(f"get_price_int: {price_str} | {ex}")
             return 0
+
 
     def read_url_file(self) -> dict:
         try:
@@ -306,15 +305,20 @@ class landCrawling():
             brif_df.to_excel(writer, sheet_name='요약', index=False)
             writer.close()
             self.logger.info(f"Excel 저장 {file_full_path}")
+            return file_full_path
         except Exception as ex:
             self.logger.critical(f"Excel 저장 에러 {ex}")
+            return None
 
     def main(self):
         self.logger.info("="*50)
         urls = self.read_url_file()
         ladnList = self.start_crawling(urls) #매개변수: url, return 값: list[dict{}]
         df, brif_df = self.list_to_df(ladnList)
-        self.write_to_excel(df, brif_df)
+        excel_file = self.write_to_excel(df, brif_df)
+        sendEmail = sendingEmail.sendingEmail('./config/config.ini')
+        sendEmail.send_gmail(excel_file)
+        # sendingEmail.send_gmail(excel_file)
 
 if __name__ == '__main__':
     naverLand = landCrawling('./config/config.ini')
