@@ -1,5 +1,8 @@
+# -*- coding: utf-8 -*-
 import os
 import logging
+import sys
+import platform
 
 import smtplib
 from email.mime.text import MIMEText
@@ -17,10 +20,24 @@ class sendingEmail():
         try:
             config = ConfigParser()
             config.read(conf_name)
+            sys.stdin.reconfigure(encoding="utf-8")
+            sys.stdout.reconfigure(encoding="utf-8")
 
-            self.set_logger(config.get("PATH", "LOG_PATH"))
-            self.mail_id = config.get("MAIL", "MAIL_ID")
-            self.mail_auth = config.get("MAIL", "MAIL_AUTH")
+            if 'macOS' in platform.platform():
+                self.os_name = 'mac'
+            elif 'win' in platform.platform().lower():
+                self.os_name = 'win'
+            else:
+                self.os_name = 'etc'
+
+            if self.os_name == 'win':
+                self.set_logger(config.get("PATH", "LOG_PATH").replace('/','\\'))
+                self.mail_id = config.get("MAIL", "MAIL_ID").replace('/','\\')
+                self.mail_auth = config.get("MAIL", "MAIL_AUTH").replace('/','\\')
+            else:
+                self.set_logger(config.get("PATH", "LOG_PATH"))
+                self.mail_id = config.get("MAIL", "MAIL_ID")
+                self.mail_auth = config.get("MAIL", "MAIL_AUTH")
 
             self.mail_to = config.get("MAIL", "MAIL_TO").replace(' ', '')
             self.mail_from = config.get("MAIL", "MAIL_FROM")
@@ -29,13 +46,14 @@ class sendingEmail():
             print(f'__init__ Error: {str(ex)}')
 
     def set_logger(self, log_path):
-        self.logger = logging.getLogger("mac_oui_org")
+        self.logger = logging.getLogger("send_mail")
         self.logger.setLevel(logging.INFO)
 
         log_name = "send_email.log"
         formatter = logging.Formatter("[%(asctime)s][%(levelname)s] %(filename)s(%(lineno)d) %(message)s")
         # formatter = logging.Formatter("[%(asctime)s][%(levelname)s] (%(lineno)d) %(message)s")
-        file_handler = RotatingFileHandler(os.path.join(log_path, log_name), maxBytes=5 * 1024 * 1024, backupCount=10)
+        file_handler = RotatingFileHandler(os.path.join(log_path, log_name), maxBytes=5 * 1024 * 1024,
+                                           backupCount=10, encoding='utf-8')
         stream_handler = logging.StreamHandler()
         file_handler.setFormatter(formatter)
         stream_handler.setFormatter(formatter)
@@ -127,7 +145,7 @@ class sendingEmail():
 
     def main(self):
         self.logger.info("send email")
-        self.send_gmail("./data/20230723202632.xlsx")
+        self.send_gmail("./data/20230902161700.xlsx")
 
 if __name__ == "__main__":
     send_email = sendingEmail('./config/config.ini')

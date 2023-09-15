@@ -3,7 +3,6 @@ import time
 from datetime import datetime, timedelta
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver import ActionChains
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
@@ -19,6 +18,7 @@ from multiprocessing import Process
 from configparser import ConfigParser
 
 import sendingEmail
+import sys
 
 class landCrawling():
     def __init__(self, conf_name):
@@ -26,19 +26,31 @@ class landCrawling():
             Process.__init__(self)
             config = ConfigParser()
             config.read(conf_name)
-
-            self.set_logger(config.get("PATH", "LOG_PATH"))
-            self.data_dir = config.get("PATH", "DATA_PATH")
-            self.url_list = config.get("PATH", "URL_LIST")
+            sys.stdin.reconfigure(encoding="utf-8")
+            sys.stdout.reconfigure(encoding="utf-8")
 
             if 'macOS' in platform.platform():
                 self.os_name = 'mac'
-            elif 'win' in platform.platform():
+            elif 'win' in platform.platform().lower():
                 self.os_name = 'win'
             else:
                 self.os_name = 'etc'
 
+            if self.os_name == 'win':
+                self.set_logger(config.get("PATH", "LOG_PATH").replace('/','\\'))
+                self.data_dir = config.get("PATH", "DATA_PATH").replace('/','\\')
+                self.url_list = config.get("PATH", "URL_LIST").replace('/','\\')
+            else:
+                self.set_logger(config.get("PATH", "LOG_PATH"))
+                self.data_dir = config.get("PATH", "DATA_PATH")
+                self.url_list = config.get("PATH", "URL_LIST")
+
+
             self.confirm_limit_day = (datetime.now() - timedelta(days=int(config.get("OPTION", "CONFIRM_LIMIT_DATE")))).strftime('%y.%m.%d') +'.'
+            self.time_sleep_int1 = int(config.get("OPTION", "TIME_SLEEP_INT1"))
+            self.time_sleep_int2 = int(config.get("OPTION", "TIME_SLEEP_INT2"))
+            self.time_sleep_int3 = int(config.get("OPTION", "TIME_SLEEP_INT3"))
+            self.mail_send_flag = (config.get("OPTION", "MAIL_SEND"))
             self.datetime_now = datetime.now().strftime('%Y%m%d%H%M%S')
         except Exception as ex:
             print(f'__init__ Error: {str(ex)}')
@@ -51,7 +63,7 @@ class landCrawling():
         # formatter = logging.Formatter("[%(asctime)s][%(levelname)s] %(filename)s(%(lineno)d) %(message)s")
         formatter = logging.Formatter("[%(asctime)s][%(levelname)s] (%(lineno)d) %(message)s")
         file_handler = RotatingFileHandler(os.path.join(log_path, log_name), maxBytes=5 * 1024 * 1024,
-                                           backupCount=10)
+                                           backupCount=10, encoding='utf-8')
         stream_handler = logging.StreamHandler()
         file_handler.setFormatter(formatter)
         stream_handler.setFormatter(formatter)
@@ -66,8 +78,11 @@ class landCrawling():
         # chrome option 세팅
         options = webdriver.ChromeOptions()  # Browser 세팅하기
         options.add_argument('lang=ko_KR')  # 사용언어 한국어
-        options.add_argument('disable-gpu')  # 하드웨어 가속 안함
-        # options.add_argument('headless') # 창 숨기기
+        #options.add_argument('disable-gpu')  # 하드웨어 가속 안함
+        options.add_argument('Content-Type=application/json; charset=utf-8')
+        #options.add_argument("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36")
+        #options.add_argument('headless') # 창 숨기기
+
 
         # 브라우저 옵션 적용
         # driver = webdriver.Chrome(options=options)
@@ -77,8 +92,8 @@ class landCrawling():
             try:
                 # URL 호출
                 driver.get(url)
-                driver.implicitly_wait(time_to_wait=10)
-                time.sleep(1)
+                driver.implicitly_wait(time_to_wait=self.time_sleep_int3)
+                time.sleep(self.time_sleep_int2)
                 complex_title = driver.find_element(By.ID, "complexTitle").text
                 self.logger.info("-" * 50)
                 self.logger.info(f"{complex_title} Crawling Start!")
@@ -89,6 +104,7 @@ class landCrawling():
                 soup = bs(html, 'html.parser')
                 tmp = soup.findAll('div', 'complex_infos')
                 land_count = {}
+                time.sleep(3)
                 for index, landTitle in enumerate(tmp):
                     # self.logger.info(f"{landTitle.find('div', 'complex_title').text}")
                     if landTitle.find('div', 'complex_title').text != complex_title:
@@ -98,6 +114,8 @@ class landCrawling():
                             self.logger.info(f"{complex_title}: {landType.find('span', 'type').text} {int(landType.find('span', 'count').text)}")
                             land_count[landType.find('span', 'type').text] = int(landType.find('span', 'count').text)
                 self.logger.info(f"매물 개수: {land_count}")
+
+                time.sleep(self.time_sleep_int2)
                 #매물정보가 없는 경우
                 if len(crawledItems) == 0:
                     self.logger.info(f"{complex_title} 매물 정보 없음")
@@ -111,6 +129,7 @@ class landCrawling():
 
                 #매물이 다수인 경우
                 else:
+                    time.sleep(3)
                     maxLen = len(crawledItems)
                     # time_value = 5
                     totalLandCount = sum([v for v in land_count.values()])
@@ -125,30 +144,34 @@ class landCrawling():
                         #     time_value = 5
                         click_idx = -1
                         try:
+                            time.sleep(self.time_sleep_int2)
                             if "네이버에서 보기" in crawledItems[click_idx].text:
                                 view_naver = crawledItems[click_idx].find_element(By.LINK_TEXT, '네이버에서 보기')
+                                time.sleep(self.time_sleep_int1)
                                 view_naver.click()
                             else:
+                                time.sleep(self.time_sleep_int1)
                                 crawledItems[click_idx].click()
                         except Exception as ex:
                             self.logger.critical(f"click error")
-                        time.sleep(0.2)
 
                         html = driver.page_source
                         # soup에 넣어주기
-                        soup = bs(html, 'html.parser')
+                        soup = bs(html, 'html.parser') #.encode("utf-8")
                         self.logger.info(
                             f"{i + 1}: 수집({len(crawledItems)}) | 대상({totalLandCount}) | {round((len(crawledItems) / totalLandCount) * 100)}% )")
-                        if len(crawledItems) <= maxLen and len(crawledItems) == totalLandCount:
+                        if len(crawledItems) <= maxLen and len(crawledItems) >= totalLandCount:
                             break
                         else:
                             maxLen = len(crawledItems)
                 landItems = soup.findAll('div', 'item_inner')
                 self.logger.info(f"{complex_title} 매물 수집({len(crawledItems)}건) 완료")
                 res = []
+                except_cnt = 0
                 for index, value in enumerate(landItems):
                     try:
                         if value.find('em', 'data').string < self.confirm_limit_day:
+                            except_cnt = except_cnt + 1
                             continue
                         tmp_dict = {}
                         tmp_dict["confirm_date"] = value.find('em', 'data').string  # 23.07.13.
@@ -172,7 +195,7 @@ class landCrawling():
                     except Exception as ex:
                         self.logger.critical(f"{complex_title} 파싱 실패: {value}")
                 landResult.extend(res)
-                self.logger.info(f"{complex_title}: {len(res)}건")
+                self.logger.info(f"{complex_title}: {len(res)}건 (*{self.confirm_limit_day}이전: {except_cnt}건 )")
             except Exception as ex:
                 self.logger.critical(f"{url} landCrawling 실패 {ex}")
 
@@ -211,7 +234,7 @@ class landCrawling():
     def read_url_file(self) -> dict:
         try:
             if self.os_name == 'win':
-                read_full_path = os.path.join(os.getcwd() + self.url_list.replace('/','\\'))
+                read_full_path = os.path.join(os.getcwd(), self.url_list.replace('/','\\'))
             elif self.os_name == 'mac':
                 read_full_path = os.path.join(os.getcwd(), self.url_list)
             else:
@@ -314,8 +337,9 @@ class landCrawling():
         df, brif_df = self.list_to_df(ladnList)
         # self.write_to_excel(df, brif_df)
         excel_file = self.write_to_excel(df, brif_df)
-        sendEmail = sendingEmail.sendingEmail('./config/config.ini')
-        sendEmail.send_gmail(excel_file)
+        if self.mail_send_flag == 'Y' or self.mail_send_flag == 'y':
+            sendEmail = sendingEmail.sendingEmail('./config/config.ini')
+            sendEmail.send_gmail(excel_file)
 
 if __name__ == '__main__':
     naverLand = landCrawling('./config/config.ini')
