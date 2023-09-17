@@ -252,6 +252,8 @@ class landCrawling():
     def list_to_df(self, data) -> set:
         try:
             df = pd.DataFrame.from_records(data)
+            df = df.sort_values(by=['complex_title','item_title','price_type','price','area_m','floor','direction','confirm_date'],ascending=[True,True,True,True,True,True,True,False])
+            df = df.drop_duplicates(subset=['complex_title','item_title','price_type','price','area_m','floor','direction'])
             brif_df = df[['complex_title', 'area_p']].drop_duplicates(subset=['complex_title', 'area_p']).reset_index(drop=True)
             price_m_list = []
             price_j_list = []
