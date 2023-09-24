@@ -113,7 +113,7 @@ class landCrawling():
                     break
                 else:
                     try_cnt = try_cnt + 1
-                    driver.refresh()
+                    #driver.refresh()
                     self.logger.info(f"{landName} {try_cnt}회 실패")
         driver.quit()
         self.logger.info(f"총 {len(landResult)}건 파싱 완료")
