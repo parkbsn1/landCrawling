@@ -11,6 +11,7 @@ import platform
 import re
 import logging
 import pandas as pd
+from numpy import inf
 from bs4 import BeautifulSoup as bs
 
 from logging.handlers import RotatingFileHandler
@@ -284,10 +285,19 @@ class landCrawling():
             df = df.sort_values(by=['complex_title','item_title','price_type','price','area_m','floor','direction','confirm_date'],ascending=[True,True,True,True,True,True,True,False])
             df = df.drop_duplicates(subset=['complex_title','item_title','price_type','price','area_m','floor','direction'])
             brif_df = df[['complex_title', 'area_p']].drop_duplicates(subset=['complex_title', 'area_p']).reset_index(drop=True)
+            agg_dict = {'최대':'max', '최소':'min', '평균':'mean', '중간값': 'median', '개수':'count'}
+
+            for v in agg_dict.keys():
+                brif_df['매매_'+v] = 0
+                brif_df['전세_' + v] = 0
+
             price_m_list = []
             price_j_list = []
             jeonse_rate = []
             jeonse_sub = []
+
+            agg_df = df.groupby(['complex_title','area_p','price_type'])['price_int'].agg(list(agg_dict.values()))
+
             for idx, value in brif_df.iterrows():
                 price_m = df[(df['complex_title'] == value['complex_title']) & (df['area_p'] == value['area_p']) & (
                             df['price_type'] == '매매')]['price_int'].min()
@@ -304,16 +314,43 @@ class landCrawling():
                 else:
                     jeonse_sub.append(0)
                     jeonse_rate.append(0)
+
+                df_idx = brif_df[(brif_df['complex_title'] == value['complex_title']) & (
+                            brif_df['area_p'] == value['area_p'])].index[0]
+                try:
+                    agg_j = agg_df.loc[(value['complex_title'], value['area_p'], '전세')]
+                    for k, v in agg_dict.items():
+                        brif_df.loc[df_idx, '전세_' + k] = agg_j[v] if k!='평균' else round(agg_j[v],2)
+                except:
+                    for k, v in agg_dict.items():
+                        brif_df.loc[df_idx, '전세_' + k] = 0
+
+                try:
+                    agg_m = agg_df.loc[(value['complex_title'], value['area_p'], '매매')]
+                    for k, v in agg_dict.items():
+                        brif_df.loc[df_idx, '매매_' + k] = agg_m[v] if k!='평균' else round(agg_m[v],2)
+                except:
+                    for k, v in agg_dict.items():
+                        brif_df.loc[df_idx, '매매_' + k] = 0
+
             brif_df['price_m'] = price_m_list
             brif_df['price_j'] = price_j_list
             brif_df['jeonse_sub'] = jeonse_sub
             brif_df['jeonse_rate'] = jeonse_rate
 
+            #신규 전세가율 추가
+            brif_df['전세가율(평균값)'] = (round(brif_df['전세_평균'] / brif_df['매매_평균'],2)*100).fillna(0)
+            brif_df['전세가율(중간값)'] = (round(brif_df['전세_중간값'] / brif_df['매매_중간값'],2)*100).fillna(0)
+            brif_df.replace([inf, -inf], 0, inplace=True)
+
             # 정렬
             brif_df = brif_df.sort_values(['complex_title', 'area_p'], ascending=False)
             brif_df.rename(columns=self.get_rename_col_dict(), inplace=True)
+            brif_df = brif_df[['아파트명','면적(평)','매매가_최소(억원)','전세가_최대(억원)','갭차이(억원)','전세가율(%)','매매_최대','매매_최소','매매_평균','매매_중간값','매매_개수','전세_최대','전세_최소','전세_평균','전세_중간값','전세_개수','전세가율(평균값)','전세가율(중간값)']]
+            brif_info_df = brif_df[['아파트명','면적(평)','매매가_최소(억원)','전세가_최대(억원)','갭차이(억원)','전세가율(%)']]
+            brif_beta_df = brif_df[['아파트명','면적(평)','갭차이(억원)','전세가율(%)','전세가율(평균값)','전세가율(중간값)','매매_최대','매매_최소','매매_평균','매매_중간값','매매_개수','전세_최대','전세_최소','전세_평균','전세_중간값','전세_개수']]
             df.rename(columns=self.get_rename_col_dict(), inplace=True)
-            return (df, brif_df)
+            return (df, brif_info_df, brif_beta_df)
         except Exception as ex:
             self.logger.critical(f"Excel 저장 에러 {ex}")
 
@@ -339,7 +376,7 @@ class landCrawling():
         }
         return rename_col_dict
 
-    def write_to_excel(self, df, brif_df):
+    def write_to_excel(self, df, brif_df, brif_beta_df):
         try:
             if self.os_name == 'win':
                 file_path = os.path.join(os.getcwd() + self.data_dir.replace('/', '\\'))
@@ -354,6 +391,7 @@ class landCrawling():
             writer = pd.ExcelWriter(file_full_path, engine="xlsxwriter")
             df.to_excel(writer, sheet_name='전체 리스트', index=False)
             brif_df.to_excel(writer, sheet_name='요약', index=False)
+            brif_beta_df.to_excel(writer, sheet_name='전세가율(추가)', index=False)
             writer.close()
             self.logger.info(f"Excel 저장 {file_full_path}")
             return file_full_path
@@ -366,9 +404,9 @@ class landCrawling():
         self.print_config_info()
         urls = self.read_url_file()
         ladnList = self.start_crawling(urls) #매개변수: url, return 값: list[dict{}]
-        df, brif_df = self.list_to_df(ladnList)
+        df, brif_df, brif_beta_df = self.list_to_df(ladnList)
         # self.write_to_excel(df, brif_df)
-        excel_file = self.write_to_excel(df, brif_df)
+        excel_file = self.write_to_excel(df, brif_df, brif_beta_df)
         if self.mail_send_flag == 'Y' or self.mail_send_flag == 'y':
             sendEmail = sendingEmail.sendingEmail('./config/config.ini')
             sendEmail.send_gmail(excel_file)
