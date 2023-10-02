@@ -104,7 +104,7 @@ class landCrawling():
 
         for landName, url in urls.items():
             try_cnt = 0
-            while(try_cnt < 3):
+            while(try_cnt < 5):
                 land_info = self.get_land_info(driver, landName, url)
                 if land_info != -1:
                     landResult.extend(land_info)
@@ -299,21 +299,21 @@ class landCrawling():
             agg_df = df.groupby(['complex_title','area_p','price_type'])['price_int'].agg(list(agg_dict.values()))
 
             for idx, value in brif_df.iterrows():
-                price_m = df[(df['complex_title'] == value['complex_title']) & (df['area_p'] == value['area_p']) & (
-                            df['price_type'] == '매매')]['price_int'].min()
-                price_m = price_m if price_m == price_m else 0
-                price_j = df[(df['complex_title'] == value['complex_title']) & (df['area_p'] == value['area_p']) & (
-                            df['price_type'] == '전세')]['price_int'].max()
-                price_j = price_j if price_j == price_j else 0
-
-                price_m_list.append(price_m)
-                price_j_list.append(price_j)
-                if price_m > 0:
-                    jeonse_sub.append(round(price_m - price_j, 1))
-                    jeonse_rate.append(round(price_j/price_m*100, 1))
-                else:
-                    jeonse_sub.append(0)
-                    jeonse_rate.append(0)
+                # price_m = df[(df['complex_title'] == value['complex_title']) & (df['area_p'] == value['area_p']) & (
+                #             df['price_type'] == '매매')]['price_int'].min()
+                # price_m = price_m if price_m == price_m else 0
+                # price_j = df[(df['complex_title'] == value['complex_title']) & (df['area_p'] == value['area_p']) & (
+                #             df['price_type'] == '전세')]['price_int'].max()
+                # price_j = price_j if price_j == price_j else 0
+                #
+                # price_m_list.append(price_m)
+                # price_j_list.append(price_j)
+                # if price_m > 0:
+                #     jeonse_sub.append(round(price_m - price_j, 1))
+                #     jeonse_rate.append(round(price_j/price_m*100, 1))
+                # else:
+                #     jeonse_sub.append(0)
+                #     jeonse_rate.append(0)
 
                 df_idx = brif_df[(brif_df['complex_title'] == value['complex_title']) & (
                             brif_df['area_p'] == value['area_p'])].index[0]
@@ -333,22 +333,36 @@ class landCrawling():
                     for k, v in agg_dict.items():
                         brif_df.loc[df_idx, '매매_' + k] = 0
 
-            brif_df['price_m'] = price_m_list
-            brif_df['price_j'] = price_j_list
-            brif_df['jeonse_sub'] = jeonse_sub
-            brif_df['jeonse_rate'] = jeonse_rate
+            # brif_df['price_m'] = price_m_list
+            # brif_df['price_j'] = price_j_list
+            # brif_df['jeonse_sub'] = jeonse_sub
+            # brif_df['jeonse_rate'] = jeonse_rate
 
             #신규 전세가율 추가
-            brif_df['전세가율(평균값)'] = (round(brif_df['전세_평균'] / brif_df['매매_평균'],2)*100).fillna(0)
+            brif_df['전세가율'] = (round(brif_df['전세_최대'] / brif_df['매매_최소'],2)*100).fillna(0)
+            brif_df['전세가율(평균)'] = (round(brif_df['전세_평균'] / brif_df['매매_평균'],2)*100).fillna(0)
             brif_df['전세가율(중간값)'] = (round(brif_df['전세_중간값'] / brif_df['매매_중간값'],2)*100).fillna(0)
+
+            #갭차이
+            brif_df['갭차이'] = 0
+            brif_df['갭차이(평균)'] = 0
+            brif_df['갭차이(중간값)'] = 0
+            for idx, value in brif_df.iterrows():
+                if value['매매_최대'] != 0:
+                    brif_df.loc[idx, '갭차이'] = value['매매_최소'] - value['전세_최대']
+                    brif_df.loc[idx, '갭차이(평균)'] = value['매매_평균'] - value['전세_평균']
+                    brif_df.loc[idx, '갭차이(중간값)'] = value['매매_중간값'] - value['전세_중간값']
             brif_df.replace([inf, -inf], 0, inplace=True)
 
             # 정렬
             brif_df = brif_df.sort_values(['complex_title', 'area_p'], ascending=False)
             brif_df.rename(columns=self.get_rename_col_dict(), inplace=True)
-            brif_df = brif_df[['아파트명','면적(평)','매매가_최소(억원)','전세가_최대(억원)','갭차이(억원)','전세가율(%)','매매_최대','매매_최소','매매_평균','매매_중간값','매매_개수','전세_최대','전세_최소','전세_평균','전세_중간값','전세_개수','전세가율(평균값)','전세가율(중간값)']]
-            brif_info_df = brif_df[['아파트명','면적(평)','매매가_최소(억원)','전세가_최대(억원)','갭차이(억원)','전세가율(%)']]
-            brif_beta_df = brif_df[['아파트명','면적(평)','갭차이(억원)','전세가율(%)','전세가율(평균값)','전세가율(중간값)','매매_최대','매매_최소','매매_평균','매매_중간값','매매_개수','전세_최대','전세_최소','전세_평균','전세_중간값','전세_개수']]
+            # brif_df = brif_df[['아파트명','면적(평)','매매가_최소(억원)','전세가_최대(억원)','갭차이(억원)','전세가율(%)','매매_최대','매매_최소','매매_평균','매매_중간값','매매_개수','전세_최대','전세_최소','전세_평균','전세_중간값','전세_개수','전세가율(평균값)','전세가율(중간값)']]
+            brif_df = brif_df[
+                ['아파트명', '면적(평)', '매매_최대', '매매_최소', '매매_평균', '매매_중간값',
+                 '매매_개수', '전세_최대', '전세_최소', '전세_평균', '전세_중간값', '전세_개수', '전세가율(평균)', '전세가율(중간값)','갭차이', '전세가율', '갭차이(평균)']]
+            brif_info_df = brif_df[['아파트명','면적(평)','매매_최소','전세_최대','갭차이','전세가율','매매_평균','전세_평균','갭차이(평균)','전세가율(평균)']]
+            brif_beta_df = brif_df[['아파트명','면적(평)','갭차이','전세가율','전세가율(평균)','전세가율(중간값)','매매_최대','매매_최소','매매_평균','매매_중간값','매매_개수','전세_최대','전세_최소','전세_평균','전세_중간값','전세_개수']]
             df.rename(columns=self.get_rename_col_dict(), inplace=True)
             return (df, brif_info_df, brif_beta_df)
         except Exception as ex:
@@ -391,7 +405,7 @@ class landCrawling():
             writer = pd.ExcelWriter(file_full_path, engine="xlsxwriter")
             df.to_excel(writer, sheet_name='전체 리스트', index=False)
             brif_df.to_excel(writer, sheet_name='요약', index=False)
-            brif_beta_df.to_excel(writer, sheet_name='전세가율(추가)', index=False)
+            brif_beta_df.to_excel(writer, sheet_name='상세', index=False)
             writer.close()
             self.logger.info(f"Excel 저장 {file_full_path}")
             return file_full_path
