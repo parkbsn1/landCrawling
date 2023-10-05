@@ -144,6 +144,10 @@ class landCrawling():
                     if landType.find('span', 'type').text in ['매매','전세','월세']:
                         self.logger.info(f"{complex_title}: {landType.find('span', 'type').text} {int(landType.find('span', 'count').text)}")
                         land_count[landType.find('span', 'type').text] = int(landType.find('span', 'count').text)
+
+            if len(land_count) == 0:
+                self.logger.info(f"매물 개수 파싱 에러")
+                return -1
             self.logger.info(f"매물 개수: {land_count}")
 
             time.sleep(self.time_sleep_int2)
@@ -191,7 +195,7 @@ class landCrawling():
                     soup = bs(html, 'html.parser') #.encode("utf-8")
                     self.logger.info(
                         f"{i + 1}: 수집({len(crawledItems)}) | 대상({totalLandCount}) | {round((len(crawledItems) / totalLandCount) * 100)}% )")
-                    if len(crawledItems) <= maxLen and len(crawledItems) >= totalLandCount:
+                    if (len(crawledItems) <= maxLen and len(crawledItems) >= totalLandCount) or (i>30 and ((len(crawledItems) / totalLandCount) * 100)>94):
                         break
                     else:
                         maxLen = len(crawledItems)
