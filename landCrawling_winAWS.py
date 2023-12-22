@@ -119,6 +119,24 @@ class landCrawling():
         self.logger.info(f"총 {len(landResult)}건 파싱 완료")
         return landResult
 
+    def click_land_info(self, crawledItems, click_idx):
+        try:
+            time.sleep(self.time_sleep_int2)
+            # self.logger.info(f"click_land_info: {click_idx}")
+            if "네이버에서 보기" in crawledItems[click_idx].text:
+                view_naver = crawledItems[click_idx].find_element(By.LINK_TEXT, '네이버에서 보기')
+                # time.sleep(self.time_sleep_int1)
+                view_naver.click()
+            else:
+                # time.sleep(self.time_sleep_int1)
+                crawledItems[click_idx].click()
+            if (click_idx+1) % 20 == 0 and click_idx != 0:
+                time.sleep(self.time_sleep_int2 * 2)
+            return 1
+        except Exception as ex:
+            self.logger.critical(f"click error: {ex}")
+            return 0
+
     def get_land_info(self, driver,landName, url):
         try:
             # URL 호출
@@ -162,45 +180,58 @@ class landCrawling():
                 soup = bs(html, 'html.parser')
                 self.logger.info(f"{1}: 수집({len(crawledItems)}) | {round((len(crawledItems) / len(crawledItems)) * 100)}% )")
 
-            #매물이 다수인 경우
+            # 매물이 다수인 경우
             else:
                 time.sleep(3)
                 maxLen = len(crawledItems)
                 # time_value = 5
                 totalLandCount = sum([v for v in land_count.values()])
-                for i in range(50):
-                    if len(crawledItems) == totalLandCount:
-                        break
+                landIdList = []
+                for click_idx in range(totalLandCount):
                     crawledItems = driver.find_elements(By.CLASS_NAME, "item_inner")
-                    # if maxLen == len(crawledItems) and totalLandCount > maxLen:
-                    #     time.sleep(time_value)
-                    #     time_value = time_value + 1
-                    # else:
-                    #     time_value = 5
-                    click_idx = -1
-                    try:
-                        time.sleep(self.time_sleep_int2)
-                        if "네이버에서 보기" in crawledItems[click_idx].text:
-                            view_naver = crawledItems[click_idx].find_element(By.LINK_TEXT, '네이버에서 보기')
-                            time.sleep(self.time_sleep_int1)
-                            view_naver.click()
-                        else:
-                            time.sleep(self.time_sleep_int1)
-                            crawledItems[click_idx].click()
-                    except Exception as ex:
-                        self.logger.critical(f"click error")
 
-                    html = driver.page_source
-                    # soup에 넣어주기
-                    soup = bs(html, 'html.parser') #.encode("utf-8")
-                    self.logger.info(
-                        f"{i + 1}: 수집({len(crawledItems)}) | 대상({totalLandCount}) | {round((len(crawledItems) / totalLandCount) * 100)}% )")
-                    if (len(crawledItems) <= maxLen and len(crawledItems) >= totalLandCount) or (i>30 and ((len(crawledItems) / totalLandCount) * 100)>94):
-                        break
-                    else:
-                        maxLen = len(crawledItems)
+                    try:
+                        if (self.click_land_info(crawledItems, click_idx) == 1):
+                            landIdList.append(driver.current_url.split('=')[-1])
+                        else:
+                            landIdList.append('-')
+                    except Exception as ex:
+                        landIdList.append('error')
+                        self.logger.critical(f"{ex} click error")
+                    if (click_idx+1) % 10 == 0 or (click_idx+1) == totalLandCount:
+                        self.logger.info(f"[{complex_title}] landId crawling {landIdList[-1]}({click_idx + 1} / {totalLandCount})")
+
+                    # self.logger.info(
+                    #     f"{i + 1}: 수집({len(crawledItems)}) | 대상({totalLandCount}) | {round((len(crawledItems) / totalLandCount) * 100)}% )")
+                    # if (len(crawledItems) <= maxLen and len(crawledItems) >= totalLandCount) or (
+                    #         i > 30 and ((len(crawledItems) / totalLandCount) * 100) > 94):
+                    #     break
+                    # else:
+                    #     maxLen = len(crawledItems)4
+            html = driver.page_source
+            # soup에 넣어주기
+            soup = bs(html, 'html.parser')  # .encode("utf-8")
             landItems = soup.findAll('div', 'item_inner')
             self.logger.info(f"{complex_title} 매물 수집({len(crawledItems)}건) 완료")
+
+            #매물 고유 ID 추출
+            # landIdList = []
+            # for click_idx in range(len(crawledItems)):
+            #     try:
+            #         time.sleep(self.time_sleep_int1)
+            #         if "네이버에서 보기" in crawledItems[click_idx].text:
+            #             view_naver = crawledItems[click_idx].find_element(By.LINK_TEXT, '네이버에서 보기')
+            #             time.sleep(self.time_sleep_int1)
+            #             view_naver.click()
+            #         else:
+            #             crawledItems[click_idx].click()
+            #         # if i % 10 == 0:
+            #         #     time.sleep(self.time_sleep_int2)
+            #         landIdList.append(driver.current_url.split('=')[-1])
+            #     except Exception as ex:
+            #         landIdList.append('-')
+            #         self.logger.critical(f"{ex} landID ({click_idx+1}번째) 추출 실패 {complex_title}")
+            # self.logger.info(f"landID 추출 완료 {complex_title}")
             res = []
             except_cnt = 0
             for index, value in enumerate(landItems):
@@ -209,6 +240,7 @@ class landCrawling():
                         except_cnt = except_cnt + 1
                         continue
                     tmp_dict = {}
+                    tmp_dict["landID"] = landIdList[index] #매물번호
                     tmp_dict["confirm_date"] = value.find('em', 'data').string  # 23.07.13.
                     tmp_dict["complex_title"] = landName #complex_title
                     # tmp_dict["land_title"], tmp_dict["dong"] = (value.find('div','item_title').find('span','text').string).split(' ') #샛별삼부 408동
@@ -374,6 +406,7 @@ class landCrawling():
 
     def get_rename_col_dict(self)->dict:
         rename_col_dict = {
+            'landID': '매물번호',
             'complex_title': '아파트명',
             'area_p': '면적(평)',
             'area_m': '면적(m²)',
