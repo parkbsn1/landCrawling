@@ -134,7 +134,7 @@ class landCrawling():
             elif (junggae):
                 # self.logger.info(f"동일 매물 {junggae.group(2)}개")
                 crawledItems[click_idx].click()
-                add_idx = int(junggae.group(2)) + 1
+                add_idx = int(junggae.group(2))
                 time.sleep(self.time_sleep_int2 * 2)
             else:
                 # crawledItems[click_idx].click()
@@ -200,11 +200,11 @@ class landCrawling():
                 ad_flag = 0
                 except_cnt = 0
                 while(click_idx < totalLandCount):
+                    self.logger.info(f"click_idx: {click_idx} | ad_flag: {ad_flag} | totalLandCount: {totalLandCount}")
                     crawledItems = driver.find_elements(By.CLASS_NAME, "item_inner")
                     try:
                         if (crawledItems[click_idx].text == ''):
-                            # totalLandCount = totalLandCount + 1
-                            click_idx = click_idx + 1
+                            totalLandCount = totalLandCount + 1
                             continue #''이면 continue
                         if crawledItems[click_idx].text == '매물을 불러오는 중입니다.':
                             continue
@@ -218,91 +218,39 @@ class landCrawling():
                             if (click_result > 0):
                                 root_dict = self.make_info_dict(crawledItems[click_idx], '동일매물', landName, 'root_dict')
 
-                            if(click_result == 0 and ad_flag > 0): #root dict 적용 필요
-                                # Todo: 동일 매물로 크롤링
-                                tmp_dict = root_dict.copy()
-                                landId = (driver.current_url.split('=')[-1])
-                                tmp_dict.update(self.make_info_dict(crawledItems[click_idx], landId, landName, 'copy_dict'))
-                                tmp_dict["duplicate"] = root_dict["item_title"] + "|" + root_dict["floor"] + "|" + \
-                                                        root_dict["area_p"]
-                                ad_flag = ad_flag - 1
-                            elif (click_result == 0):
-                                #Todo: 단일 매물로 크롤링
-                                landId = (driver.current_url.split('=')[-1])
-                                tmp_dict = self.make_info_dict(crawledItems[click_idx], landId, landName, 'tmp_dict')
+                            elif(click_result == 0):
+                                if (ad_flag > 0): #root dict 적용 필요
+                                    # Todo: 동일 매물로 크롤링
+                                    tmp_dict = root_dict.copy()
+                                    landId = (driver.current_url.split('=')[-1])
+                                    tmp_dict.update(self.make_info_dict(crawledItems[click_idx], landId, landName, 'copy_dict'))
+                                    tmp_dict["duplicate"] = root_dict["item_title"] + "|" + root_dict["floor"].strip() + "|" + root_dict["area_p"]
+                                    ad_flag = ad_flag - 1
+                                else:
+                                    #Todo: 단일 매물로 크롤링
+                                    landId = (driver.current_url.split('=')[-1])
+                                    tmp_dict = self.make_info_dict(crawledItems[click_idx], landId, landName, 'tmp_dict')
+
+                                if 'confirm_date' not in tmp_dict.keys(): #confirm_date 값이 없는 경우
+                                    except_cnt = except_cnt + 1
+                                    continue
+                                elif tmp_dict['confirm_date'] < self.confirm_limit_day:
+                                    except_cnt = except_cnt + 1
+                                    continue
+                                else:
+                                    res.append(tmp_dict)
                             else:
                                 self.logger.info(f"Nothing... idx:{click_idx} -> {crawledItems[click_idx].text}")
                             totalLandCount = totalLandCount + click_result
-
-                            if tmp_dict['confirm_date'] < self.confirm_limit_day:
-                                except_cnt = except_cnt + 1
-                                continue
-                            res.append(tmp_dict)
-
                     except Exception as ex:
                         self.logger.critical(f"{complex_title} 파싱 실패: {crawledItems[click_idx].text}")
                         self.logger.critical(f"{ex} click error")
                     finally:
-                        if (click_idx) % 10 == 0 or (click_idx+1) == totalLandCount or click_result > 0:
+                        if (click_idx) % 10 == 0 or (click_idx+1) == totalLandCount:
                             self.logger.info(f"[{complex_title}] landId crawling {click_idx}({click_idx + 1} / {totalLandCount})")
                         click_idx = click_idx + 1
             self.logger.info(f"{complex_title}: {len(res)}건 (*{self.confirm_limit_day}이전: {except_cnt}건 )")
             return res
-
-            '''
-            html = driver.page_source
-            # soup에 넣어주기
-            soup = bs(html, 'html.parser')  # .encode("utf-8")
-            landItems = soup.findAll('div', 'item_inner')
-            self.logger.info(f"{complex_title} 매물 수집({len(list(filter(lambda x: x!='동일매물', landIdList)))}건) 완료")
-
-            res = []
-            except_cnt = 0
-            compile_str = re.compile('(중개사([\d]+)곳)')
-            root_dict_flag = 0 #1 이상인 경우 동일매물
-            for index, value in enumerate(landItems):
-                try:
-                    junggae = compile_str.search(value.text)
-
-                    if value.text == '매물을 불러오는 중입니다.':
-                        continue
-                    if junggae: #중개사N곳 이 존재하는 경우(동일매물일 경우)
-                        root_dict_flag = int(junggae.group(2))
-                        root_dict = self.make_info_dict(index, value, "root", landName)
-                        continue
-
-                    #root_dict_flag 값이 0: 단일매물 / 1이상: 동일매물
-                    if root_dict_flag > 0:
-                        tmp_dict = root_dict.copy()
-                        tmp_dict["duplicate"] = root_dict["item_title"] +"|"+ root_dict["floor"] +"|"+ root_dict["area_p"]
-                        tmp_dict["landID"] = landIdList[index]  # 매물번호 #Todo: 동일매물에 대한 별도 표시 추가
-                        tmp_dict["confirm_date"] = value.find('em', 'data').string  # 23.07.13.
-                        if tmp_dict["price_type"] in ['매매', '전세']:  # 매매, 전세
-                            tmp_dict["price"] = value.find('span', 'price').string  # 7억 5,000
-                            tmp_dict["price_int"] = self.get_price_int(value.find('span', 'price').string, tmp_dict["price_type"])
-                        else:  # 월세
-                            tmp_dict["price"] = value.find('span', 'price').string[2:]
-                            tmp_dict["price_int"] = self.get_price_int(tmp_dict["price"].split('/')[0])
-                        # tmp_dict["info_area_spec2"] = (value.find('div', 'info_area').get_text().split(',')[-1]).replace('\n','').strip()  # 8월중입주협의
-                        #tmp_dict["info_area_spec2"] = value.find('div','info_area').string.replace('\n', '').strip()  # 8월중입주협의
-                        try:
-                            tmp_dict["info_area_spec2"] = value.find('span', 'spec').string.replace('\n','').strip()  # 8월중입주협의
-                        except:
-                            tmp_dict["info_area_spec2"] = '-'
-                        root_dict_flag = root_dict_flag - 1
-                    else:
-                        tmp_dict = self.make_info_dict(index, value, landIdList[index], landName)
-
-                    if value.find('em', 'data').string < self.confirm_limit_day:
-                        except_cnt = except_cnt + 1
-                        continue
-
-                    res.append(tmp_dict)
-                except Exception as ex:
-                    self.logger.critical(f"{complex_title} 파싱 실패: {value}")
-                    self.logger.critical(f"{ex}")
-            self.logger.info(f"{complex_title}: {len(res)}건 (*{self.confirm_limit_day}이전: {except_cnt}건 )")
-            return res'''
         except Exception as ex:
             self.logger.critical(f"get_land_info Error")
             self.logger.critical(f"{ex}")
@@ -310,30 +258,45 @@ class landCrawling():
 
     def make_info_dict(self, crawledItem, landID, landName, dict_type):
         try:
+            #공통
             tmp_dict = {}
             tmp_dict["duplicate"] = "-"
             tmp_dict["landID"] = landID  # 매물번호
             tmp_dict["complex_title"] = landName  # complex_title
 
-            tmp_dict["confirm_date"] = crawledItem.find_element(By.CLASS_NAME,'label_area').find_element(By.CLASS_NAME,'data').text  # 23.07.13.
-            tmp_dict["item_title"] = crawledItem.find_element(By.CLASS_NAME,'item_title').find_element(By.CLASS_NAME,'text').text  # 샛별삼부 408동
-            tmp_dict["price_type"] = crawledItem.find_element(By.CLASS_NAME,'price_line').find_element(By.CLASS_NAME,'type').text  # 전세
-            if tmp_dict["price_type"] in ['매매', '전세']:  # 매매, 전세
-                tmp_dict["price"] = crawledItem.find_element(By.CLASS_NAME,'price_line').find_element(By.CLASS_NAME,'price').text  # 7억 5,000
-                tmp_dict["price_int"] = self.get_price_int(tmp_dict["price"], tmp_dict["price_type"])
-            else:  # 월세
-                tmp_dict["price"] =crawledItem.find_element(By.CLASS_NAME,'price_line').find_element(By.CLASS_NAME,'price').text
-                tmp_dict["price_int"] = self.get_price_int(tmp_dict["price"].split('/')[0])
-            tmp_dict["land_type"] = crawledItem.find_element(By.CLASS_NAME,'info_area').find_element(By.CLASS_NAME,'type').text  # 아파트
-            # tmp_dict["info_area_spec"] = (value.find('div', 'info_area').find('span','spec').string).replace('\n','') #158/128m², 15/25층, 남동향
-            tmp_dict["area_m"], tmp_dict["floor"], tmp_dict["direction"] = crawledItem.find_element(By.CLASS_NAME,
-                                                                                                    'info_area').find_element(
-                By.CLASS_NAME, 'spec').text.replace('\n', '').split(',')  # 158/128m², 15/25층, 남동향
-            tmp_dict["area_p"] = self.get_area_num(tmp_dict["area_m"])
-            try:
-                tmp_dict["info_area_spec2"] = (crawledItem.find_element(By.CLASS_NAME,'info_area').text.split(',')[-1]).replace('\n','').strip()  # 8월중입주협의
-            except:
-                tmp_dict["info_area_spec2"] = '-'
+            if dict_type == 'copy_dict':
+                tmp_dict["confirm_date"] = crawledItem.find_element(By.CLASS_NAME, 'label_area').find_element(By.CLASS_NAME, 'data').text  # 23.07.13.
+                tmp_dict["price_type"] = crawledItem.find_element(By.CLASS_NAME, 'item_title').find_element(By.CLASS_NAME, 'type').text  # 전세
+                if tmp_dict["price_type"] in ['매매', '전세']:  # 매매, 전세
+                    tmp_dict["price"] = crawledItem.find_element(By.CLASS_NAME, 'item_title').find_element(By.CLASS_NAME, 'price').text  # 7억 5,000
+                    tmp_dict["price_int"] = self.get_price_int(tmp_dict["price"], tmp_dict["price_type"])
+                else:  # 월세
+                    tmp_dict["price"] = crawledItem.find_element(By.CLASS_NAME, 'item_title').find_element(By.CLASS_NAME, 'price').text  # 7억 5,000
+                    tmp_dict["price_int"] = self.get_price_int(tmp_dict["price"].split('/')[0])
+
+            else:
+                tmp_dict["confirm_date"] = crawledItem.find_element(By.CLASS_NAME,'label_area').find_element(By.CLASS_NAME,'data').text  # 23.07.13.
+                tmp_dict["item_title"] = crawledItem.find_element(By.CLASS_NAME,'item_title').find_element(By.CLASS_NAME,'text').text  # 샛별삼부 408동
+                tmp_dict["price_type"] = crawledItem.find_element(By.CLASS_NAME,'price_line').find_element(By.CLASS_NAME,'type').text  # 전세
+                if tmp_dict["price_type"] in ['매매', '전세']:  # 매매, 전세
+                    tmp_dict["price"] = crawledItem.find_element(By.CLASS_NAME,'price_line').find_element(By.CLASS_NAME,'price').text  # 7억 5,000
+                    tmp_dict["price_int"] = self.get_price_int(tmp_dict["price"], tmp_dict["price_type"])
+                else:  # 월세
+                    tmp_dict["price"] =crawledItem.find_element(By.CLASS_NAME,'price_line').find_element(By.CLASS_NAME,'price').text
+                    tmp_dict["price_int"] = self.get_price_int(tmp_dict["price"].split('/')[0])
+                tmp_dict["land_type"] = crawledItem.find_element(By.CLASS_NAME,'info_area').find_element(By.CLASS_NAME,'type').text  # 아파트
+                # tmp_dict["info_area_spec"] = (value.find('div', 'info_area').find('span','spec').string).replace('\n','') #158/128m², 15/25층, 남동향
+                tmp_dict["area_m"], tmp_dict["floor"], tmp_dict["direction"] = crawledItem.find_element(By.CLASS_NAME,
+                                                                                                        'info_area').find_element(
+                    By.CLASS_NAME, 'spec').text.replace('\n', '').split(',')  # 158/128m², 15/25층, 남동향
+                tmp_dict["area_p"] = self.get_area_num(tmp_dict["area_m"])
+                try:
+                    if dict_type == 'root_dict':
+                        tmp_dict["info_area_spec2"] = crawledItem.find_element(By.CLASS_NAME,'tag_area').text  # 25년이내, 올수리, 방네개
+                    else:
+                        tmp_dict["info_area_spec2"] = crawledItem.find_element(By.CLASS_NAME, 'info_area').find_elements(By.CLASS_NAME, 'spec')[1].text  #25년이내, 올수리, 방네개
+                except:
+                    tmp_dict["info_area_spec2"] = '-'
         except Exception as ex:
             self.logger.critical(f"make info dict:{ex} | {tmp_dict}")
         finally:
