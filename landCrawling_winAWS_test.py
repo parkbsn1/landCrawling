@@ -105,7 +105,7 @@ class landCrawling():
         for landName, url in urls.items():
             try_cnt = 0
             while(try_cnt < 5):
-                land_info = self.get_land_info(driver, landName, url)
+                land_info = self.get_land_info(driver, landName, url) #크롤링
                 if land_info != -1:
                     landResult.extend(land_info)
                     break
@@ -140,20 +140,19 @@ class landCrawling():
             junggae = compile_str.search(crawledItems[click_idx].text)
             # self.logger.info(f"land info: {crawledItems[click_idx].text}")
 
-            if "네이버에서 보기" in crawledItems[click_idx].text:
-                view_naver = crawledItems[click_idx].find_element(By.LINK_TEXT, '네이버에서 보기')
-                # time.sleep(self.time_sleep_int1)
-                view_naver.click()
-            elif (junggae):
-                # self.logger.info(f"동일 매물 {junggae.group(2)}개")
+            if (junggae): #동일-대표 매물
+                self.logger.info(f"동일 매물 {junggae.group(2)}개")
                 crawledItems[click_idx].click()
                 add_idx = int(junggae.group(2))
-                time.sleep(self.time_sleep_int2 * 2)
-            else:
+                time.sleep(self.time_sleep_int1)
+            elif "네이버에서 보기" in crawledItems[click_idx].text: #단일/동일-상세 매물 타플랫폼인경우
+                view_naver = crawledItems[click_idx].find_element(By.LINK_TEXT, '네이버에서 보기')
+                view_naver.click()
+            else: #단일/동일-상세 매물인 경우
                 # crawledItems[click_idx].click()
                 crawledItems[click_idx].find_element(By.CLASS_NAME, "item_link").click()
-            if (click_idx+1) % 20 == 0 and click_idx != 0:
-                time.sleep(self.time_sleep_int2 * 2)
+            # if (click_idx+1) % 20 == 0 and click_idx != 0:
+            #     time.sleep(self.time_sleep_int2 * 2)
             return add_idx
         except Exception as ex:
             self.logger.critical(f"click error: {ex}")
@@ -175,7 +174,7 @@ class landCrawling():
             soup = bs(html, 'html.parser')
             tmp = soup.findAll('div', 'complex_infos')
             land_count = {}
-            time.sleep(3)
+            # time.sleep(3)
             for index, landTitle in enumerate(tmp):
                 # self.logger.info(f"{landTitle.find('div', 'complex_title').text}")
                 if landTitle.find('div', 'complex_title').text != complex_title:
@@ -186,11 +185,11 @@ class landCrawling():
                         land_count[landType.find('span', 'type').text] = int(landType.find('span', 'count').text)
 
             if len(land_count) == 0:
-                self.logger.info(f"매물 개수 파싱 에러")
+                self.logger.info(f"매물 0건 : 파싱 에러")
                 return -1
             self.logger.info(f"매물 개수: {land_count}")
 
-            time.sleep(self.time_sleep_int2)
+            # time.sleep(self.time_sleep_int2)
             #매물정보가 없는 경우
             if len(crawledItems) == 0:
                 self.logger.info(f"{complex_title} 매물 정보 없음")
@@ -204,7 +203,7 @@ class landCrawling():
 
             # 매물이 다수인 경우
             else:
-                time.sleep(3)
+                # time.sleep(3)
                 maxLen = len(crawledItems)
                 # time_value = 5
                 totalLandCount = sum([v for v in land_count.values()])
@@ -233,17 +232,29 @@ class landCrawling():
                         #Todo: root/copy/tmp 판단 기준 변경
                         #root: 중개사N건 / copy: div class='info_area' -> span class='spec' [0] 없는 경우(평/층/방향) / tmp
                         click_result = self.click_land_info(crawledItems, click_idx)
-                        if (click_result != -1): # -1: 에러 / 0: 해당매물 / 1이상: 중복매물
+                        if (click_result != -1): # -1: 에러 / 0: 단일 또는 동일-상세 매물 / 1이상: 동일-대표 매물
                             if (ad_dict['cnt'] == 0 and click_result > 0):
                                 ad_dict['cnt'] = click_result
                                 ad_dict['raw'] = click_result
+                            #동일-대표 / 동일-상세 / 단독 매물 판단
+                            if click_result > 0 and ad_dict['raw'] > 0: #동일-대표: click_result > 0 ADN ad_dict['raw'] 또는 ad_dict['cnt'] == 0
+                                item_type = 'root_dict'
+                            elif click_result == 0 and ad_dict['raw'] > 0: #동일-상세: click_result == 0 AND ad_dict['raw'] 또는 ad_dict['cnt'] > 0
+                                item_type = 'copy_dict'
+                            elif click_result == 0 and ad_dict['raw'] == 0: #단독매물: click_result == 0 AND ad_dict['raw'] 또는 ad_dict['cnt'] == 0
+                                item_type = 'tmp_dict'
+                            else:
+                                self.logger.critical(f"No item_type")
+                                item_type = 'tmp'
 
-                            #Troot dict 생성
-                            if (click_result > 0):
-                                root_dict = self.make_info_dict(crawledItems[click_idx], '동일매물', landName, 'root_dict')
+                            #root dict 생성
+                            if (item_type == 'root_dict'):#(click_result > 0):
+                                root_dict = self.make_info_dict(crawledItems[click_idx], item_type, landName, item_type) #root_dict
 
-                            elif(click_result == 0):
-                                if (ad_dict['cnt'] > 0): #root dict 적용 필요
+                            # elif(click_result == 0):
+                            else:
+                                # if (ad_dict['cnt'] > 0): #root dict 적용 필요
+                                if (item_type == 'copy_dict'):  # root dict 적용 필요
                                     #동일-상세 매물로 크롤링
                                     ad_dict['cnt'] = ad_dict['cnt'] - 1
                                     tmp_dict = root_dict.copy()
@@ -263,8 +274,6 @@ class landCrawling():
                                     continue
                                 else:
                                     res.append(tmp_dict)
-                            else:
-                                self.logger.info(f"Nothing... idx:{click_idx} -> {crawledItems[click_idx].text}")
                             totalLandCount = totalLandCount + click_result
                     except Exception as ex:
                         self.logger.critical(f"{complex_title} 파싱 실패: {crawledItems[click_idx].text}")
@@ -274,7 +283,7 @@ class landCrawling():
                     finally:
                         if (click_idx+1) % 10 == 0 or (click_idx+1) == totalLandCount:
                             self.logger.info(f"[{complex_title}] landId crawling {click_idx}({click_idx + 1} / {totalLandCount})")
-                            time.sleep(self.time_sleep_int2*2)
+                            time.sleep(self.time_sleep_int2)
                         if ad_dict['cnt'] == 0:
                             self.logger.info(f"-" * 60)
                             if ad_dict['raw'] > 0:
@@ -350,6 +359,9 @@ class landCrawling():
             if dict_type == 'tmp_dict':  # 단독매물
                 try:
                     tmp_dict["info_area_spec1"] = crawledItem.find_element(By.CLASS_NAME, 'info_area').find_elements(By.CLASS_NAME, 'spec')[1].text #22입주특급정보바로확인클릭올수리확장샷시
+                except IndexError:
+                    self.logger.info(f"No info_area_spec1: {crawledItem.text}")
+                    tmp_dict["info_area_spec1"] = '-'
                 except Exception as ex:
                     self.print_logger_error(ex, "info_area_spec1", crawledItem.text, landID, landName, dict_type)
                     tmp_dict["info_area_spec1"] = '-'
@@ -367,6 +379,9 @@ class landCrawling():
                     tmp_dict["price_int"] = self.get_price_int(tmp_dict["price"].split('/')[0])
                 try:
                     tmp_dict["info_area_spec1"] = crawledItem.find_element(By.CLASS_NAME, 'info_area').find_element(By.CLASS_NAME, 'spec').text #22입주특급정보바로확인클릭올수리확장샷시
+                except IndexError:
+                    self.logger.info(f"No info_area_spec1: {crawledItem.text}")
+                    tmp_dict["info_area_spec1"] = '-'
                 except Exception as ex:
                     self.print_logger_error('-', "info_area_spec1", crawledItem.text, landID, landName, dict_type)
                     tmp_dict["info_area_spec1"] = '-'
@@ -380,6 +395,8 @@ class landCrawling():
 
     def print_logger_error(self, ex, column, item_text, landID, landName, dict_type):
         self.logger.critical(f"[{landName}|{landID}|{dict_type}]{column}:{ex} | {item_text}")
+
+
 
     def get_area_num(self, area_m):
         try:
@@ -549,8 +566,8 @@ class landCrawling():
 
     def main(self):
         self.logger.info("="*50)
-        self.print_config_info()
-        urls = self.read_url_file()
+        self.print_config_info() #설정값 출력
+        urls = self.read_url_file() #크롤링할 url 리스트 불러오기
         ladnList = self.start_crawling(urls) #매개변수: url, return 값: list[dict{}]
         df, brif_df, brif_beta_df = self.list_to_df(ladnList)
         # self.write_to_excel(df, brif_df)
